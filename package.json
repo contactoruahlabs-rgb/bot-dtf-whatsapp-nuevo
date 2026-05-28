@@ -6,11 +6,8 @@
   "scripts": {
     "start": "node index.js"
   },
-  "keywords": ["whatsapp", "bot", "dtf"],
-  "author": "Ruah Labs",
-  "license": "MIT",
   "dependencies": {
-    "whatsapp-web.js": "^1.26.10",
+    "@whiskeysockets/baileys": "^6.6.3",
     "qrcode-terminal": "^0.12.0"
   }
 }
