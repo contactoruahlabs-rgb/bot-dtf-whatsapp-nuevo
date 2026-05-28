@@ -1,13 +1,6 @@
-const { Client, LocalAuth } = require('whatsapp-web.js');
+const crypto = require('crypto');
+const { default: makeWASocket, useMultiFileAuthState, DisconnectReason } = require('@whiskeysockets/baileys');
 const qrcode = require('qrcode-terminal');
-
-const client = new Client({
-  authStrategy: new LocalAuth(),
-  puppeteer: {
-    headless: true,
-    args: ['--no-sandbox', '--disable-setuid-sandbox'],
-  },
-});
 
 // Datos de la calculadora
 const garments = [
@@ -29,7 +22,6 @@ const sizes = [
   { w: 35, h: 35, cost: 4500 },
 ];
 
-// Función para calcular cotización
 function calculateQuote(garmentName, dtfSizes, quantity) {
   const garment = garments.find(g => g.name.toLowerCase() === garmentName.toLowerCase());
   if (!garment) return null;
@@ -59,56 +51,86 @@ function calculateQuote(garmentName, dtfSizes, quantity) {
   };
 }
 
-// Evento QR
-client.on('qr', (qr) => {
-  console.log('\n📱 ESCANEA ESTE CÓDIGO QR CON WHATSAPP:\n');
-  qrcode.generate(qr, { small: true });
-  console.log('\n');
-});
+async function startBot() {
+  try {
+    const { state, saveCreds } = await useMultiFileAuthState('auth_info');
 
-// Bot listo
-client.on('ready', () => {
-  console.log('✅ Bot conectado a WhatsApp correctamente');
-});
+    const sock = makeWASocket({
+      auth: state,
+      printQRInTerminal: false,
+    });
 
-// Mensajes recibidos
-client.on('message', async (msg) => {
-  console.log(`📨 ${msg.from}: ${msg.body}`);
+    sock.ev.on('connection.update', (update) => {
+      const { connection, lastDisconnect, qr } = update;
+      
+      if (qr) {
+        console.log('\n\n📱 ESCANEA ESTE CÓDIGO QR CON WHATSAPP:\n');
+        qrcode.generate(qr, { small: true });
+        console.log('\n\n');
+      }
+      
+      if (connection === 'close') {
+        const shouldReconnect = lastDisconnect?.error?.output?.statusCode !== DisconnectReason.loggedOut;
+        if (shouldReconnect) {
+          console.log('Reconectando...');
+          setTimeout(() => startBot(), 3000);
+        }
+      } else if (connection === 'open') {
+        console.log('✅ Bot conectado a WhatsApp');
+      }
+    });
 
-  const userMessage = msg.body.trim();
-  const match = userMessage.match(/(.+?),\s*(.+?),\s*(\d+)/);
+    sock.ev.on('creds.update', saveCreds);
 
-  if (match) {
-    const garmentName = match[1].trim();
-    const sizesStr = match[2].trim();
-    const quantity = parseInt(match[3]);
+    sock.ev.on('messages.upsert', async (m) => {
+      const message = m.messages[0];
+      if (!message.message) return;
 
-    const dtfSizes = sizesStr
-      .split('+')
-      .map((s) => {
-        const [w, h] = s.trim().split('x').map(Number);
-        return { w, h };
-      })
-      .filter((s) => s.w && s.h);
+      const userMessage = message.message.conversation || message.message.extendedTextMessage?.text || '';
+      const senderID = message.key.remoteJid;
 
-    const quote = calculateQuote(garmentName, dtfSizes, quantity);
+      if (!userMessage.trim()) return;
 
-    if (quote) {
-      const response = `✅ *Cotización DTF*\n\n` +
-        `*${quote.garment}* (${quote.quantity} unidades)\n` +
-        `Tamaños: ${quote.details}\n` +
-        `Costo producción/u: $${quote.productionPerUnit}\n\n` +
-        `💰 *Precio por unidad: $${quote.pricePerUnit}*\n` +
-        `💵 *Total: $${quote.total}*`;
+      console.log(`📨 ${senderID}: ${userMessage}`);
 
-      msg.reply(response);
-      console.log(`✅ Cotización enviada`);
-    } else {
-      msg.reply('❌ Prenda o tamaño no encontrado. Intenta: Polera, 20x30, 10');
-    }
-  } else {
-    msg.reply('Hola! Envía: *Prenda, tamaños, cantidad*\nEjemplo: Polera, 20x30 + 15x15, 10');
+      const match = userMessage.match(/(.+?),\s*(.+?),\s*(\d+)/);
+
+      if (match) {
+        const garmentName = match[1].trim();
+        const sizesStr = match[2].trim();
+        const quantity = parseInt(match[3]);
+
+        const dtfSizes = sizesStr
+          .split('+')
+          .map((s) => {
+            const [w, h] = s.trim().split('x').map(Number);
+            return { w, h };
+          })
+          .filter((s) => s.w && s.h);
+
+        const quote = calculateQuote(garmentName, dtfSizes, quantity);
+
+        if (quote) {
+          const response = `✅ *Cotización DTF*\n\n` +
+            `*${quote.garment}* (${quote.quantity} unidades)\n` +
+            `Tamaños: ${quote.details}\n` +
+            `Costo producción/u: $${quote.productionPerUnit}\n\n` +
+            `💰 *Precio por unidad: $${quote.pricePerUnit}*\n` +
+            `💵 *Total: $${quote.total}*`;
+
+          await sock.sendMessage(senderID, { text: response });
+          console.log(`✅ Cotización enviada`);
+        } else {
+          await sock.sendMessage(senderID, { text: '❌ Prenda o tamaño no encontrado. Intenta: Polera, 20x30, 10' });
+        }
+      } else {
+        await sock.sendMessage(senderID, { text: 'Hola! Envía: *Prenda, tamaños, cantidad*\nEjemplo: Polera, 20x30 + 15x15, 10' });
+      }
+    });
+  } catch (err) {
+    console.error('Error:', err);
+    setTimeout(() => startBot(), 5000);
   }
-});
+}
 
-client.initialize();
+startBot();
