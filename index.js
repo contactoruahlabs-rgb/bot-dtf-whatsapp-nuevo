@@ -1,6 +1,10 @@
 const crypto = require('crypto');
+const express = require('express');
 const { default: makeWASocket, useMultiFileAuthState, DisconnectReason } = require('@whiskeysockets/baileys');
-const qrcode = require('qrcode-terminal');
+const qrcode = require('qrcode');
+
+const app = express();
+let qrCodeUrl = null;
 
 // Datos de la calculadora
 const garments = [
@@ -51,6 +55,37 @@ function calculateQuote(garmentName, dtfSizes, quantity) {
   };
 }
 
+// Servidor HTTP para mostrar el QR
+app.get('/', (req, res) => {
+  if (qrCodeUrl) {
+    res.send(`
+      <!DOCTYPE html>
+      <html>
+      <head>
+        <title>Bot WhatsApp DTF - Escanea el QR</title>
+        <style>
+          body { display: flex; justify-content: center; align-items: center; height: 100vh; margin: 0; background: #f0f0f0; font-family: Arial; }
+          .container { text-align: center; background: white; padding: 40px; border-radius: 10px; box-shadow: 0 0 10px rgba(0,0,0,0.1); }
+          h1 { color: #333; }
+          img { width: 300px; height: 300px; margin: 20px 0; }
+          p { color: #666; font-size: 16px; }
+        </style>
+      </head>
+      <body>
+        <div class="container">
+          <h1>📱 Bot WhatsApp DTF</h1>
+          <p>Escanea este código QR con WhatsApp:</p>
+          <img src="${qrCodeUrl}" alt="QR Code">
+          <p>Una vez escaneado, podrás usar el bot para cotizar DTF</p>
+        </div>
+      </body>
+      </html>
+    `);
+  } else {
+    res.send('<h1>⏳ Generando código QR... Recarga en 5 segundos</h1>');
+  }
+});
+
 async function startBot() {
   try {
     const { state, saveCreds } = await useMultiFileAuthState('auth_info');
@@ -60,13 +95,13 @@ async function startBot() {
       printQRInTerminal: false,
     });
 
-    sock.ev.on('connection.update', (update) => {
+    sock.ev.on('connection.update', async (update) => {
       const { connection, lastDisconnect, qr } = update;
       
       if (qr) {
-        console.log('\n\n📱 ESCANEA ESTE CÓDIGO QR CON WHATSAPP:\n');
-        qrcode.generate(qr, { small: true });
-        console.log('\n\n');
+        console.log('📱 Generando código QR...');
+        qrCodeUrl = await qrcode.toDataURL(qr);
+        console.log('✅ Código QR disponible en: http://localhost:3000');
       }
       
       if (connection === 'close') {
@@ -133,4 +168,8 @@ async function startBot() {
   }
 }
 
-startBot();
+const PORT = process.env.PORT || 3000;
+app.listen(PORT, () => {
+  console.log(`🌐 Servidor corriendo en puerto ${PORT}`);
+  startBot();
+});
