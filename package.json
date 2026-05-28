@@ -1,0 +1,16 @@
+{
+  "name": "bot-dtf-whatsapp-nuevo",
+  "version": "1.0.0",
+  "description": "Bot WhatsApp para cotizador DTF",
+  "main": "index.js",
+  "scripts": {
+    "start": "node index.js"
+  },
+  "keywords": ["whatsapp", "bot", "dtf"],
+  "author": "Ruah Labs",
+  "license": "MIT",
+  "dependencies": {
+    "whatsapp-web.js": "^1.26.10",
+    "qrcode-terminal": "^0.12.0"
+  }
+}
